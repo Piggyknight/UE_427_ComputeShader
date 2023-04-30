@@ -1,0 +1,96 @@
+#include "/Engine/Public/Platform.ush"
+
+RWTexture2D<float> OutWashTex;
+Buffer<float2> InHitPoints;
+float4 TexelScaleOffset;
+float4 WashStrength;
+int PointCount;
+int KSize;
+
+float mod(float x, float y)
+{
+	return float(x - y * floor(x/y));
+}
+
+float3 unpack(float val)
+{
+	return float3((val/65536.0)%256.0, (val/ 256) %256.0, float(int(val) & 0x000000ff)) / 255.0;
+}
+
+float next_pack(float x, float y, float z)
+{
+	int a = int(floor(x * 255)) << 16;
+	int b = int(floor(y * 255)) << 8;
+	int c = int(floor(z * 255));
+	return float(a | b | c);
+}
+
+[numthreads(1, 1, 1)]
+void MainComputeShader(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+		   uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+		   uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+		   uint GI : SV_GroupIndex)
+{
+	//遍历所有输入的冲洗UV点, 将UV转换成像素坐标,
+	//然后在该像素坐标周围KSIZE范围内的像素点, 计算出冲洗强度
+	for (int i = 0; i < PointCount; i++)
+	{
+		float2 uv = InHitPoints[i].xy;
+		uv = frac(uv);
+
+		int w;
+		int h;
+		OutWashTex.GetDimensions(w, h);
+		uv *= float2(w, h);
+		int2 iuv = int2(uv);
+
+		for ( int x = -1; x <=1 ;x++ )
+			for  ( int y = -1; y <=1; y++)
+			{
+				float d = length(float2(x,y));
+				int2 pixel_idx = iuv+int2(x,y);
+
+				float3 in_dirtness = unpack(OutWashTex[pixel_idx]);
+				
+				//Calc dirtness
+				float3 dirtness =float3(1.0,1.0,1.0);
+	
+				//OutWashTex[pixel_idx] = next_pack(0, 1.0, 0);
+				OutWashTex[pixel_idx] = 1.0;
+			}
+	}
+}
+
+// [numthreads(1, 1, 1)]
+// void MainComputeShader(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y)        --> current group index (dispatched by c++)
+// 		   uint3 DTid : SV_DispatchThreadID, //atm: 0...256 in rows & columns (XY)   --> "global" thread id
+// 		   uint3 GTid : SV_GroupThreadID, //atm: 0...256, -,- in columns (X)      --> current threadId in group / "local" threadId
+// 		   uint GI : SV_GroupIndex)
+// {
+// 	//遍历所有输入的冲洗UV点, 将UV转换成像素坐标,
+// 	//然后在该像素坐标周围KSIZE范围内的像素点, 计算出冲洗强度
+// 	for (int i = 0; i < PointCount; i++)
+// 	{
+// 		float2 uv = InHitPoints[i].xy;
+// 		uv = frac(uv);
+//
+// 		int w;
+// 		int h;
+// 		OutWashTex.GetDimensions(w, h);
+// 		uv *= float2(w, h);
+// 		int2 iuv = int2(uv);
+// 		
+// 		for ( int x = -KSize; x <=KSize ;x++ )
+// 			for  ( int y = -KSize; y <=KSize; y++)
+// 			{
+// 				float d = length(float2(x,y));
+// 				float wash = 1/(1+(d*d));
+// 				int2 pixel_idx = iuv+int2(x,y);
+// 				
+// 				//Calc dirtness
+// 				float3 dirtness = OutWashTex[pixel_idx].xyz - wash * WashStrength.xyz;
+// 				OutWashTex[pixel_idx]=float4(dirtness.xyz,0); 
+// 			}
+// 	}
+//
+// }

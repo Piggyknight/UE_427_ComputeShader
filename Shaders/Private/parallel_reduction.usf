@@ -1,0 +1,53 @@
+#include "/Engine/Public/Platform.ush"
+
+Texture2D<float> InTex;
+RWTexture2D<float> OutResult;
+
+groupshared float Sum[8*8];
+
+
+float load(uint2 idx)
+{
+	uint2 Size;
+    InTex.GetDimensions(Size.x, Size.y);
+	
+	if (idx.x >= Size.x || idx.y >= Size.y)
+        return 0.0;
+		
+	return InTex[idx.xy].x;
+}
+
+[numthreads(4, 4, 1)]
+void main(uint GroupIndex : SV_GroupIndex
+		, uint2 GroupID : SV_GroupID
+		, uint2 GroupThreadID : SV_GroupThreadID
+		, uint2 DispatchTreadID : SV_DispatchThreadID)
+{
+    
+	uint2 local_id = GroupThreadID.xy;
+	uint2 pixel_id = 4*DispatchTreadID.xy;
+	pixel_id += 1;
+		
+	Sum[(2*local_id.x + 0) + 8*(2*local_id.y + 0)] = load(pixel_id + uint2(0,0));
+	Sum[(2*local_id.x + 1) + 8*(2*local_id.y + 0)] = load(pixel_id + uint2(2,0));
+	Sum[(2*local_id.x + 0) + 8*(2*local_id.y + 1)] = load(pixel_id + uint2(0,2));
+	Sum[(2*local_id.x + 1) + 8*(2*local_id.y + 1)] = load(pixel_id + uint2(2,2));
+	
+	
+	for(uint isize = 4; isize > 0; isize /= 2) 
+	{
+        GroupMemoryBarrierWithGroupSync();
+
+        // sum up in tiles
+        if(local_id.x < isize && local_id.y < isize) 
+		{
+            Sum[local_id.x + 8*local_id.y] += Sum[isize + local_id.x+8*(local_id.y)]; // a, b, c, d
+            Sum[local_id.x + 8*local_id.y] += Sum[local_id.x+ 8*(isize + local_id.y)]; // e, f, g, h
+            Sum[local_id.x + 8*local_id.y] += Sum[isize + local_id.x+ 8*(isize + local_id.y)]; // i, j, k, l
+        }
+    }
+	
+    if(local_id.x == 0 && local_id.y == 0) 
+        OutResult[GroupID.xy] = Sum[0];
+
+}
