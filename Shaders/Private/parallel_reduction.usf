@@ -26,12 +26,11 @@ void main(uint GroupIndex : SV_GroupIndex
     
 	uint2 local_id = GroupThreadID.xy;
 	uint2 pixel_id = 4*DispatchTreadID.xy;
-	pixel_id += 1;
-		
-	Sum[(2*local_id.x + 0) + 8*(2*local_id.y + 0)] = load(pixel_id + uint2(0,0));
-	Sum[(2*local_id.x + 1) + 8*(2*local_id.y + 0)] = load(pixel_id + uint2(2,0));
-	Sum[(2*local_id.x + 0) + 8*(2*local_id.y + 1)] = load(pixel_id + uint2(0,2));
-	Sum[(2*local_id.x + 1) + 8*(2*local_id.y + 1)] = load(pixel_id + uint2(2,2));
+			
+	Sum[(2*local_id.x + 0) + 8*(2*local_id.y + 0)] = load(pixel_id + uint2(0,0)) + load(pixel_id + uint2(0,1)) + load(pixel_id + uint2(1,0)) + load(pixel_id + uint2(1,1));
+	Sum[(2*local_id.x + 1) + 8*(2*local_id.y + 0)] = load(pixel_id + uint2(2,0)) + load(pixel_id + uint2(2,1)) + load(pixel_id + uint2(3,0)) + load(pixel_id + uint2(3,1));
+	Sum[(2*local_id.x + 0) + 8*(2*local_id.y + 1)] = load(pixel_id + uint2(0,2)) + load(pixel_id + uint2(0,3)) + load(pixel_id + uint2(1,2)) + load(pixel_id + uint2(1,3));
+	Sum[(2*local_id.x + 1) + 8*(2*local_id.y + 1)] = load(pixel_id + uint2(2,2)) + load(pixel_id + uint2(2,3)) + load(pixel_id + uint2(3,2)) + load(pixel_id + uint2(3,3));
 	
 	
 	for(uint isize = 4; isize > 0; isize /= 2) 
@@ -41,9 +40,9 @@ void main(uint GroupIndex : SV_GroupIndex
         // sum up in tiles
         if(local_id.x < isize && local_id.y < isize) 
 		{
-            Sum[local_id.x + 8*local_id.y] += Sum[isize + local_id.x+8*(local_id.y)]; // a, b, c, d
-            Sum[local_id.x + 8*local_id.y] += Sum[local_id.x+ 8*(isize + local_id.y)]; // e, f, g, h
-            Sum[local_id.x + 8*local_id.y] += Sum[isize + local_id.x+ 8*(isize + local_id.y)]; // i, j, k, l
+			Sum[local_id.x + 8*local_id.y] += Sum[isize + local_id.x+8*(local_id.y)];
+            Sum[local_id.x + 8*local_id.y] += Sum[local_id.x+ 8*(isize + local_id.y)];
+            Sum[local_id.x + 8*local_id.y] += Sum[isize + local_id.x+ 8*(isize + local_id.y)];
         }
     }
 	

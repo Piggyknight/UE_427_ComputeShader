@@ -44,8 +44,8 @@ void MainComputeShader(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y) 
 		uv *= float2(w, h);
 		int2 iuv = int2(uv);
 
-		for ( int x = -1; x <=1 ;x++ )
-			for  ( int y = -1; y <=1; y++)
+		for ( int x = -2; x <=2 ;x++ )
+			for  ( int y = -2; y <=2; y++)
 			{
 				float d = length(float2(x,y));
 				int2 pixel_idx = iuv+int2(x,y);

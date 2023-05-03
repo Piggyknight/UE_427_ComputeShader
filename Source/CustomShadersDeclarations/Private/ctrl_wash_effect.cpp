@@ -313,7 +313,7 @@ void FCtrl_WashEffect::ParallelReductionSum(FRDGBuilder& GraphBuilder, FRDGTextu
 	const FRDGTextureDesc& TextureDesc = Texture->Desc;
 	
 	UTextureRenderTarget2D* Rt = cachedParams.RenderTargetMips;
-	const FIntPoint DestTextureSize(1,1);
+	const FIntPoint DestTextureSize(4,4);
 	TRefCountPtr<IPooledRenderTarget> OutWashPoolRt = CreateRenderTarget(Rt->GetRenderTargetResource()->TextureRHI, *Rt->GetName());
 	RdgMipRt = GraphBuilder.RegisterExternalTexture(OutWashPoolRt
 													, TEXT("RDG_Mip_OUT_RT")
