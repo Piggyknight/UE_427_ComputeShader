@@ -2,16 +2,16 @@
 
 Texture2D<float> InTex;
 RWTexture2D<float> OutResult;
+//RWBuffer<uint> OutResult;
+uint SrcWidth;
+uint SrcHeight;
 
 groupshared float Sum[8*8];
 
 
 float load(uint2 idx)
 {
-	uint2 Size;
-    InTex.GetDimensions(Size.x, Size.y);
-	
-	if (idx.x >= Size.x || idx.y >= Size.y)
+	if (idx.x >= SrcWidth || idx.y >= SrcHeight)
         return 0.0;
 		
 	return InTex[idx.xy].x;
@@ -47,6 +47,7 @@ void main(uint GroupIndex : SV_GroupIndex
     }
 	
     if(local_id.x == 0 && local_id.y == 0) 
-        OutResult[GroupID.xy] = Sum[0];
+        //OutResult[GroupID.x + GroupID.y * SrcWidth] = Sum[0];
+		OutResult[GroupID.xy] = Sum[0];
 
 }

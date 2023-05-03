@@ -1,6 +1,15 @@
 #pragma once
 #include "ComputeShaderDeclaration.h"
 
+
+struct FRDGMipTex
+{
+	FIntPoint Size;
+	FIntPoint DstSize;
+	TRefCountPtr<IPooledRenderTarget> PooledMipRt;
+	FRDGTextureRef RdgMipRt;
+};
+
 /// <summary>
 /// A singleton Shader Manager for our Shader Type
 /// </summary>
@@ -30,6 +39,10 @@ public:
 
 	TArray<FColor> ReadBackBuffer;
 
+	bool IsInited = false;
+	TArray<FRDGMipTex> MipTexArray;
+
+	void InitMips(FRHICommandListImmediate& RHICmdList, FRDGTextureRef Texture);
 	void UpdateParameters(FParam_WashCS& DrawParameters);
 	void Execute_RenderThread(FRHICommandListImmediate& RHICmdList);
 	void ParallelReductionSum(FRDGBuilder& GraphBuilder, FRDGTextureRef Texture);
