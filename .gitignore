@@ -1,6 +1,8 @@
 .vs/
+.idea/
 /Binaries
 /Intermediate
 /Saved
 /DerivedDataCache
 /CustomComputeShader.sln
+/Build

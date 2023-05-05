@@ -2,19 +2,32 @@
 
 Texture2D<float> InTex;
 RWTexture2D<float> OutResult;
-//RWBuffer<uint> OutResult;
 uint SrcWidth;
 uint SrcHeight;
+int IsCompress;
 
-groupshared float Sum[8*8];
+groupshared float3 Sum[8*8];
 
 
-float load(uint2 idx)
+float3 unpack(float val)
+{
+	return float3((val/65536.0)%256.0, (val/ 256) %256.0, float(int(val) & 0x000000ff)) / 255.0;
+}
+
+// get Color from Tex, if use IsCompress, then range is [0, 1], otherwise range is [0,float_max]
+float3 load(uint2 idx)
 {
 	if (idx.x >= SrcWidth || idx.y >= SrcHeight)
         return 0.0;
 		
-	return InTex[idx.xy].x;
+	if(IsCompress > 0)
+	{
+		
+		return unpack(InTex[idx.xy].x);
+	}
+		
+	
+	return float3(InTex[idx.xy].x, 0, 0);
 }
 
 [numthreads(4, 4, 1)]
@@ -47,7 +60,6 @@ void main(uint GroupIndex : SV_GroupIndex
     }
 	
     if(local_id.x == 0 && local_id.y == 0) 
-        //OutResult[GroupID.x + GroupID.y * SrcWidth] = Sum[0];
-		OutResult[GroupID.xy] = Sum[0];
+		OutResult[GroupID.xy] = Sum[0].x + Sum[0].y + Sum[0].z;
 
 }

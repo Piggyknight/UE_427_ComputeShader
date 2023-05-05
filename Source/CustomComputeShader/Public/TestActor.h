@@ -27,6 +27,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = ShaderDemo)
 	UTextureRenderTarget2D* Rt_2 = nullptr;
 
+	UPROPERTY(EditAnywhere)
+	class UCompParallelReduction* Reduction = nullptr;
+
 	// Sets default values for this pawn's properties
 	ATestActor();
 

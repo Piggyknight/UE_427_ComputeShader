@@ -55,8 +55,8 @@ void MainComputeShader(uint3 Gid : SV_GroupID, //atm: -, 0...256, - in rows (Y) 
 				//Calc dirtness
 				float3 dirtness =float3(1.0,1.0,1.0);
 	
-				//OutWashTex[pixel_idx] = next_pack(0, 1.0, 0);
-				OutWashTex[pixel_idx] = 1.0;
+				OutWashTex[pixel_idx] = next_pack(0, 1.0, 0);
+				//OutWashTex[pixel_idx] = 1.0;
 			}
 	}
 }

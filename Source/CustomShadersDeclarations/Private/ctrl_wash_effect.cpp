@@ -1,6 +1,7 @@
 #include "ctrl_wash_effect.h"
 
 #include "ComputeShaderDeclaration.h"
+#include "comp_parallel_reduction.h"
 
 #include "GenerateMips.h"
 #include "GlobalShader.h"
@@ -12,36 +13,6 @@
 
 #define NUM_THREADS_PER_GROUP_DIMENSION 8
 
-class FParallelReductionMipsCS : public FGlobalShader
-{
-public:
-	DECLARE_GLOBAL_SHADER(FParallelReductionMipsCS);
-	SHADER_USE_PARAMETER_STRUCT(FParallelReductionMipsCS, FGlobalShader);
-
-	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
-			SHADER_PARAMETER_RDG_TEXTURE_SRV(Texture2D<float>, InTex)
-			SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float>, OutResult)
-			//SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<uint32>, OutResult)
-			SHADER_PARAMETER(int, SrcWidth)
-			SHADER_PARAMETER(int, SrcHeight)
-	END_SHADER_PARAMETER_STRUCT()
-	
-	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
-	{
-		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::ES3_1);
-	}
-
-	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
-	{
-		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
-
-		OutEnvironment.CompilerFlags.Add(CFLAG_AllowTypedUAVLoads);
-		//OutEnvironment.SetDefine(TEXT("THREADS_X"), FComputeShaderUtils::kGolden2DGroupSize);
-		//OutEnvironment.SetDefine(TEXT("THREADS_Y"), FComputeShaderUtils::kGolden2DGroupSize);
-		//OutEnvironment.SetDefine(TEXT("THREADS_Z"), 1);
-	}
-	
-};
 
 class FParallelReductionShader : public FGlobalShader
 {
@@ -107,60 +78,14 @@ public:
 //                        ShaderType              ShaderPath             Shader function name    Type
 IMPLEMENT_GLOBAL_SHADER(FPC_WashCS, "/CustomShaders/compute_wash.usf", "MainComputeShader", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FParallelReductionShader, "/CustomShaders/parallel_reduction_sum.usf", "main", SF_Compute);
-IMPLEMENT_GLOBAL_SHADER(FParallelReductionMipsCS, "/CustomShaders/parallel_reduction.usf", "main", SF_Compute);
+
 
 //Static members
 FCtrl_WashEffect* FCtrl_WashEffect::instance = nullptr;
 
-
-void FCtrl_WashEffect::InitMips(FRHICommandListImmediate& RHICmdList, FRDGTextureRef Texture)
+void FCtrl_WashEffect::Init(UCompParallelReduction* comp)
 {
-	if (IsInited)
-		return;
-
-	IsInited = true;
-
-	int s = 4;
-	const FRDGTextureDesc& TexDesc = Texture->Desc;
-	FIntVector Size = TexDesc.GetSize();
-
-	int SrcWidth = Size.X;
-	int SrcHeight = Size.Y;
-
-	while (SrcWidth > 1 && SrcHeight > 1)
-	{
-		SrcWidth = FMath::Max(SrcWidth >> s, 1);
-		SrcHeight = FMath::Max(SrcHeight >> s, 1);
-
-		int dstWidth = s*FMath::DivideAndRoundUp(SrcWidth, s);
-		int dstHeight = s*FMath::DivideAndRoundUp(SrcHeight, s);
-
-		FPooledRenderTargetDesc ComputeShaderOutputDesc(FPooledRenderTargetDesc::Create2DDesc(FIntPoint(dstWidth, dstHeight)
-																							, TexDesc.Format
-																							, FClearValueBinding::Black
-																							, TexCreate_ShaderResource
-																							, TexCreate_ShaderResource | TexCreate_UAV
-																							, false));
-
-		ComputeShaderOutputDesc.DebugName = TEXT("WashTempPoolRtMip");
-
-		FRDGMipTex MipTex;
-		MipTex.Size.X = SrcWidth;
-		MipTex.Size.Y = SrcHeight;
-		MipTex.DstSize.X = dstWidth;
-		MipTex.DstSize.Y = dstHeight;
-		GRenderTargetPool.FindFreeElement(RHICmdList
-											, ComputeShaderOutputDesc
-											, MipTex.PooledMipRt
-											, TEXT("WashTempPoolRtMip"));
-
-		MipTexArray.Add(MipTex);
-
-		UE_LOG(LogTemp, Log, TEXT("Mip map: src : %d, %d, dst: %d, %d"), SrcWidth, SrcHeight, dstWidth, dstHeight);
-	}
-
-	UE_LOG(LogTemp, Log, TEXT("Create Mips Num: %d"), MipTexArray.Num());
-	
+	ReductionComp = comp;
 }
 
 //Update the parameters by a providing an instance of the Parameters structure used by the shader manager
@@ -383,130 +308,10 @@ void FCtrl_WashEffect::Execute_RenderThread(FRHICommandListImmediate& RHICmdList
 	ReadbackBuffersWriteIndex = (ReadbackBuffersWriteIndex + 1u) % MaxStreamingReadbackBuffers;
 	ReadbackBuffersNumPending = FMath::Min(ReadbackBuffersNumPending + 1u, MaxStreamingReadbackBuffers);
 	*/
-
-	InitMips(RHICmdList, RdgTempRt);
-	ParallelReductionSum(GraphBuilder, RdgTempRt);
+	ReductionComp->InitDynamicRhi(RHICmdList);
+	ReductionComp->ParallelReductionSum(GraphBuilder, RdgTempRt);
+	
 	//UE_LOG(LogTemp, Log, TEXT("Finished Readback: WriteIdx:%d, Pending:%d "), ReadbackBuffersWriteIndex, ReadbackBuffersNumPending);
 	
 	GraphBuilder.Execute();
-}
-
-void FCtrl_WashEffect::ParallelReductionSum(FRDGBuilder& GraphBuilder, FRDGTextureRef Texture)
-{
-
-	for (auto& MipTex : MipTexArray)
-	{
-		MipTex.RdgMipRt = GraphBuilder.RegisterExternalTexture(MipTex.PooledMipRt
-																, TEXT("RDG_Mip_OUT_RT")
-																, ERenderTargetTexture::ShaderResource
-																, ERDGTextureFlags::MultiFrame);
-
-		TShaderMapRef<FParallelReductionMipsCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
-		FParallelReductionMipsCS::FParameters* MipPassParameters = GraphBuilder.AllocParameters<FParallelReductionMipsCS::FParameters>();
-		MipPassParameters->InTex = GraphBuilder.CreateSRV(FRDGTextureSRVDesc::Create(Texture));
-		MipPassParameters->SrcWidth = MipTex.Size.X;
-		MipPassParameters->SrcHeight = MipTex.Size.Y;
-		MipPassParameters->OutResult = GraphBuilder.CreateUAV(FRDGTextureUAVDesc(MipTex.RdgMipRt));
-
-		FIntPoint DestTextureSize = FIntPoint(MipTex.DstSize.X, MipTex.DstSize.Y);
-
-		FComputeShaderUtils::AddPass(GraphBuilder,
-									RDG_EVENT_NAME("Parallel Reduction"),
-									ComputeShader,
-									MipPassParameters,
-									FComputeShaderUtils::GetGroupCount(DestTextureSize, 4));
-
-	}
-	
-	FRDGMipTex Mip = MipTexArray.Last();
-
-	FReadSurfaceDataFlags ReadDataFlags;
-	ReadDataFlags.SetLinearToGamma(false);
-	ReadDataFlags.SetOutputStencil(false);
-	ReadDataFlags.SetMip(0);
-
-	FIntPoint Extent = FIntPoint(Mip.DstSize.X, Mip.DstSize.Y);
-
-	AddReadbackTexturePass(GraphBuilder
-		, RDG_EVENT_NAME("DirtnessReadBack")
-		, Mip.RdgMipRt
-		, [this, Extent, ReadDataFlags](FRHICommandListImmediate& RHICmdList)
-		{
-			FRDGMipTex Mip = this->MipTexArray.Last();
-			RHICmdList.ReadSurfaceData(Mip.PooledMipRt->GetTargetableRHI()
-										, FIntRect(0, 0, Extent.X, Extent.Y)
-										, this->ReadBackBuffer
-										, ReadDataFlags);
-			
-			for (auto& Color : this->ReadBackBuffer)
-			{
-				UE_LOG(LogTemp, Log, TEXT("Color: %d, %d, %d"), Color.R, Color.G, Color.B)
-			}
-		});
-
-	/*
-	check(Texture);
-	RDG_EVENT_SCOPE(GraphBuilder, "ParallelReductionSum");
-	
-	const FRDGTextureDesc& TextureDesc = Texture->Desc;
-	
-	UTextureRenderTarget2D* Rt = cachedParams.RenderTargetMips;
-	const FIntPoint DestTextureSize(4,4);
-	TRefCountPtr<IPooledRenderTarget> OutWashPoolRt = CreateRenderTarget(Rt->GetRenderTargetResource()->TextureRHI, *Rt->GetName());
-	RdgMipRt = GraphBuilder.RegisterExternalTexture(OutWashPoolRt
-													, TEXT("RDG_Mip_OUT_RT")
-													, ERenderTargetTexture::ShaderResource
-													, ERDGTextureFlags::MultiFrame);
-
-	
-	FRDGTextureRef RdgTempRt = GraphBuilder.RegisterExternalTexture(PooledMipRt
-																	, TEXT("RDG_TEMP_POOL_RT_MIP")
-																	, ERenderTargetTexture::Targetable
-																	, ERDGTextureFlags::MultiFrame);
-	
-	TShaderMapRef<FParallelReductionMipsCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
-	FParallelReductionMipsCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FParallelReductionMipsCS::FParameters>();
-	PassParameters->InTex   = GraphBuilder.CreateSRV(FRDGTextureSRVDesc::Create(Texture));
-	PassParameters->OutResult  = GraphBuilder.CreateUAV(FRDGTextureUAVDesc(RdgTempRt));
-
-	FComputeShaderUtils::AddPass(
-		GraphBuilder,
-		RDG_EVENT_NAME("Parallel Reduction"),
-		ComputeShader,
-		PassParameters,
-		FComputeShaderUtils::GetGroupCount(DestTextureSize, 4));
-
-	FRHICopyTextureInfo CopyInfo;
-	CopyInfo.Size = FIntVector(Rt->SizeX, Rt->SizeY, 1);
-	AddCopyTexturePass(GraphBuilder, RdgTempRt, RdgMipRt, CopyInfo);
-	*/
-	//ReadBackTexture(GraphBuilder);
-}
-
-void FCtrl_WashEffect::ReadBackTexture(FRDGBuilder& GraphBuilder)
-{
-
-	RDG_EVENT_SCOPE(GraphBuilder, "ReadbackTexture");
-	FReadSurfaceDataFlags ReadDataFlags;
-	ReadDataFlags.SetLinearToGamma(false);
-	ReadDataFlags.SetOutputStencil(false);
-	ReadDataFlags.SetMip(0);
-
-	FIntPoint Extent = FIntPoint(1, 1);
-	
-	AddReadbackTexturePass(GraphBuilder
-							, RDG_EVENT_NAME("DirtnessReadBack")
-							, RdgOutRt
-							,[this, Extent, ReadDataFlags] (FRHICommandListImmediate& RHICmdList)
-							{
-								RHICmdList.ReadSurfaceData(this->RdgMipRt->GetRHI()
-															, FIntRect(0, 0, Extent.X, Extent.Y)
-															, this->ReadBackBuffer
-															, ReadDataFlags);
-								
-								for(auto& Color : this->ReadBackBuffer)
-								{
-									UE_LOG(LogTemp, Log, TEXT("Color: %d, %d, %d"), Color.R, Color.G, Color.B)
-								}
-							});
 }
